@@ -1,41 +1,50 @@
-# AR Card Scanner
+# AR Card Lab
 
-Point a phone camera at a printed card and a 3D model appears on it:
-**cat card → cat, skull card → skull.** Runs entirely in the phone browser
+Point a phone/tablet camera at any printed card and its 3D model appears on
+top of it, with a caption naming and explaining it. Runs in the browser
 (AR.js + A-Frame) — no app install.
 
+Nine cards, each wired to its own animated model:
+
+| Card | Shows |
+|------|-------|
+| Enzyme & Substrate | animated enzyme reaction cycle (binding -> reaction -> release) |
+| Heart | a beating heart |
+| Skeleton | a simplified skull / spine / ribcage |
+| Muscle | a contracting skeletal muscle |
+| Lungs | lungs inflating and deflating |
+| DNA | a rotating double helix |
+| Atom | electrons orbiting a nucleus |
+| CPU chip | a processor with a pulsing core |
+| Network | nodes with a data packet hopping between them |
+
+> Note on realism: the models are built from simple 3D shapes (spheres,
+> cylinders, etc.) and animated — clear, self-contained *schematics*, good for
+> explaining a concept, not photorealistic anatomy. To make one look realistic,
+> load a real model file: <a-entity gltf-model="heart.glb">.
+
 ## Files
-- `index.html` – the whole app
-- `cat.patt`, `skull.patt` – marker pattern files (must sit next to `index.html`)
-- `cat-card.png`, `skull-card.png` – the two markers, one per file
-- `print-these-cards.png` – both markers on one sheet, ready to print
+- index.html — the app
+- *.patt — the 9 marker pattern files (must sit next to index.html)
+- marker-cards.html — printable page of all 9 cards (open -> Save as PDF)
 
-## Run it (about 5 minutes)
-The camera needs **HTTPS**, so you can't just double-click the file — host it.
-GitHub Pages is free and gives you HTTPS automatically:
-
-1. Create a new GitHub repo.
-2. Upload **all four** of these: `index.html`, `cat.patt`, `skull.patt`
-   (the PNGs don't need to be uploaded — they're only for printing).
-3. Repo **Settings → Pages → Deploy from branch → `main` / root → Save**.
-4. Wait ~1 min, open the `https://<you>.github.io/<repo>/` link **on your phone**.
-5. Tap **Start camera**, allow access.
+## Run it (~5 min)
+The camera needs HTTPS, so host it — GitHub Pages is free and HTTPS by default:
+1. New GitHub repo -> upload index.html AND all nine .patt files together.
+2. Settings -> Pages -> Deploy from branch -> main / root -> Save.
+3. Open the https://<you>.github.io/<repo>/ link on the phone, tap Start camera, allow access.
 
 ## Print the cards
-Print `print-these-cards.png`. Each card should end up roughly **7–10 cm**
-square. Keep the white border around each card — the black frame is what the
-camera locks onto, and the white margin (quiet zone) helps a lot.
+Open marker-cards.html, click Print / Save as PDF. Set paper to A4 and scale
+100% (not "Fit to page"). Print ~7-10 cm per card, keep the white border, cut
+on the dashes.
 
-## Tips if tracking is flaky
-- **Good, even light.** Glare on glossy paper hurts; matte is better.
-- Hold the card **flat and fairly still**, ~20–40 cm from the camera.
-- Bigger print = detected from further away.
-- If the model appears but faces the wrong way, tweak the model `rotation`
-  values inside `index.html` (each marker block).
+## How it's wired (so you can change it)
+Near the top of the script in index.html there's a CARDS list — each entry maps
+a marker to its .patt file, a name, and a description. The 3D content for each
+lives in the M.<markerId> blocks just below. To change what a card shows, edit
+that block. The card picture is only a label; the app matches the pattern, so
+any card can show anything.
 
-## Where to take it next
-- Swap the primitive-built cat/skull for real `.glb` models
-  (`<a-entity gltf-model="url"></a-entity>`) once the loop works.
-- Add more cards: make a new marker image + `.patt`, add another `<a-marker>`.
-- For nicer, picture-based cards, switch from AR.js pattern markers to
-  **MindAR** image tracking.
+Want a realistic version of one (real .glb model) or a new computing demo
+(packet routing, a stack, binary)? That's the next step.

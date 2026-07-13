@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>AR Card Lab</title>
+  <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@3.4.5/aframe/build/aframe-ar.js"></script>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    html,body{width:100%;height:100%;overflow:hidden;background:#000}
+    #arjs-video,.a-canvas,a-scene video,a-scene canvas{
+      position:fixed!important;top:0!important;left:0!important;
+      width:100vw!important;height:100vh!important;object-fit:cover!important;display:block!important;z-index:1!important}
+    #hud{position:fixed;inset:0;z-index:10;pointer-events:none;
+      font-family:ui-monospace,"SF Mono","Roboto Mono",Menlo,Consolas,monospace;color:#eafff2}
+    .bracket{position:absolute;width:40px;height:40px;border:3px solid #5ad1ff;opacity:.85}
+    .bracket.tl{top:20px;left:20px;border-right:none;border-bottom:none}
+    .bracket.tr{top:20px;right:20px;border-left:none;border-bottom:none}
+    .bracket.bl{bottom:112px;left:20px;border-right:none;border-top:none}
+    .bracket.br{bottom:112px;right:20px;border-left:none;border-top:none}
+    #status{position:absolute;top:22px;left:50%;transform:translateX(-50%);
+      background:rgba(6,12,18,.72);border:1px solid rgba(90,209,255,.5);padding:8px 15px;border-radius:999px;
+      font-size:12px;letter-spacing:.14em;text-transform:uppercase;display:flex;align-items:center;gap:8px;
+      white-space:nowrap;backdrop-filter:blur(6px)}
+    #dot{width:9px;height:9px;border-radius:50%;background:#6b7c74;flex:none}
+    #status.searching #dot{background:#ffcf4d;animation:pulse 1s infinite}
+    #status.locked #dot{background:#5ad1ff;box-shadow:0 0 10px #5ad1ff}
+    @keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+    #panel{position:absolute;left:0;right:0;bottom:0;
+      background:linear-gradient(180deg,rgba(6,12,18,0) 0%,rgba(6,12,18,.92) 40%);
+      padding:38px 18px 20px;text-align:center;
+      font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+    #pName{font-size:19px;font-weight:700;color:#7be0a0;margin-bottom:4px}
+    #pDesc{font-size:14px;line-height:1.45;max-width:620px;margin:0 auto;opacity:.95}
+    #searchHint{position:absolute;bottom:150px;left:50%;transform:translateX(-50%);
+      background:rgba(6,12,18,.7);border:1px solid rgba(255,255,255,.14);padding:8px 15px;border-radius:10px;
+      font-size:12px;text-align:center;max-width:86vw;backdrop-filter:blur(6px)}
+    #gate{position:fixed;inset:0;z-index:40;background:radial-gradient(120% 120% at 50% 0%,#0c1720 0%,#050708 70%);
+      color:#eafff2;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
+      padding:28px;font-family:ui-monospace,"SF Mono","Roboto Mono",Menlo,Consolas,monospace}
+    #gate h1{font-size:19px;letter-spacing:.16em;margin-bottom:6px}
+    #gate .accent{color:#5ad1ff}
+    #gate p{font-size:13px;opacity:.85;max-width:360px;line-height:1.6;margin-bottom:22px}
+    #startBtn{pointer-events:auto;cursor:pointer;background:#5ad1ff;color:#04121a;border:none;font:inherit;
+      font-size:14px;letter-spacing:.12em;text-transform:uppercase;padding:14px 30px;border-radius:12px;font-weight:700}
+    #startBtn:disabled{opacity:.6}
+    #gate small{display:block;margin-top:18px;font-size:11px;opacity:.55}
+    .hidden{display:none!important}
+  </style>
+</head>
+<body>
+  <div id="gate">
+    <h1><span class="accent">AR</span> CARD LAB</h1>
+    <p>Point the camera at any printed card and its 3D model appears on top. Try the enzyme, heart, DNA, atom&hellip;</p>
+    <button id="startBtn">Start camera</button>
+    <small id="gateNote">Allow camera access when asked</small>
+  </div>
+
+  <div id="hud" class="hidden">
+    <div class="bracket tl"></div><div class="bracket tr"></div>
+    <div class="bracket bl"></div><div class="bracket br"></div>
+    <div id="status" class="searching"><span id="dot"></span><span id="label">Searching for a card…</span></div>
+    <div id="searchHint">Hold a card flat, in good light, ~30&nbsp;cm away.</div>
+    <div id="panel" class="hidden"><div id="pName"></div><div id="pDesc"></div></div>
+  </div>
+
+  <div id="sceneHost"></div>
+
+  <script>
+  (function(){
+    var gate=document.getElementById('gate'),startBtn=document.getElementById('startBtn'),
+        gateNote=document.getElementById('gateNote'),hud=document.getElementById('hud'),
+        statusEl=document.getElementById('status'),labelEl=document.getElementById('label'),
+        searchHint=document.getElementById('searchHint'),panel=document.getElementById('panel'),
+        pName=document.getElementById('pName'),pDesc=document.getElementById('pDesc'),
+        host=document.getElementById('sceneHost');
+
+    // marker id -> {patt, name, desc}
+    var CARDS=[
+      {id:'rxMarker',   patt:'reaction.patt', name:'Enzyme & Substrate',
+        desc:'An enzyme catalyses a reaction: the substrate binds to the active site, reacts, and products are released.'},
+      {id:'heartMarker',patt:'heart.patt',    name:'Heart',
+        desc:'The heart is a muscle that contracts rhythmically to pump blood around the body.'},
+      {id:'skelMarker', patt:'skeleton.patt', name:'Skeleton (simplified)',
+        desc:'A schematic skull, spine and ribcage — the framework that supports and protects the body.'},
+      {id:'muscleMarker',patt:'muscle.patt',  name:'Skeletal muscle',
+        desc:'A muscle contracts: the fibres shorten and the belly bulges, pulling on the tendons at each end.'},
+      {id:'lungMarker', patt:'lungs.patt',    name:'Lungs',
+        desc:'The lungs inflate and deflate as you breathe, exchanging oxygen and carbon dioxide with the blood.'},
+      {id:'dnaMarker',  patt:'dna.patt',      name:'DNA',
+        desc:'The double-helix molecule that stores genetic information — two strands linked by base pairs.'},
+      {id:'atomMarker', patt:'atom.patt',     name:'Atom',
+        desc:'A central nucleus of protons and neutrons, with electrons orbiting in shells around it.'},
+      {id:'chipMarker', patt:'chip.patt',     name:'CPU chip',
+        desc:'The processor: it fetches, decodes and executes the instructions that make a computer run.'},
+      {id:'netMarker',  patt:'network.patt',  name:'Network',
+        desc:'Devices (nodes) connected together, passing data packets between one another.'}
+    ];
+    var INFO={}; CARDS.forEach(function(c){INFO[c.id]=c;});
+
+    // ---- static models (built from A-Frame primitives) ----
+    function stand(inner){ return '<a-entity rotation="-90 0 0">'+inner+'</a-entity>'; }
+    function spin(dur,inner){ return '<a-entity animation__spin="property: rotation; to: 0 360 0; loop: true; dur: '+dur+'; easing: linear">'+inner+'</a-entity>'; }
+
+    var M={};
+    // enzyme keeps its own staged animation (driven in JS below)
+    M.rxMarker=stand(
+      '<a-entity id="enzyme">'+
+      '  <a-sphere position="0 0.4 0" radius="0.6" scale="1 0.62 0.9" color="#2FB8A8"></a-sphere>'+
+      '  <a-box id="wallL" position="-0.4 0.8 0" width="0.16" height="0.5" depth="0.6" color="#23968A"></a-box>'+
+      '  <a-box id="wallR" position="0.4 0.8 0" width="0.16" height="0.5" depth="0.6" color="#23968A"></a-box>'+
+      '</a-entity>'+
+      '<a-cylinder id="bond" position="0.95 1.30 0.05" radius="0.05" height="0.22" color="#C24E2A"></a-cylinder>'+
+      '<a-sphere id="ballA" position="0.95 1.45 0.05" radius="0.15" color="#F27649"></a-sphere>'+
+      '<a-sphere id="ballB" position="0.95 1.15 0.05" radius="0.15" color="#F27649"></a-sphere>');
+
+    M.heartMarker=stand(spin(14000,
+      '<a-entity animation__beat="property: scale; from: 1 1 1; to: 1.12 1.12 1.12; dir: alternate; loop: true; dur: 480; easing: easeInOutQuad">'+
+      '  <a-sphere position="-0.2 1.0 0" radius="0.28" color="#c0334a"></a-sphere>'+
+      '  <a-sphere position="0.2 1.0 0" radius="0.28" color="#c0334a"></a-sphere>'+
+      '  <a-cone position="0 0.55 0" radius-bottom="0.42" radius-top="0" height="0.66" rotation="180 0 0" color="#c0334a"></a-cone>'+
+      '  <a-cylinder position="-0.14 1.32 0" radius="0.06" height="0.3" color="#9c2839"></a-cylinder>'+
+      '  <a-cylinder position="0.15 1.34 0" radius="0.05" height="0.34" color="#6b8fd6"></a-cylinder>'+
+      '</a-entity>'));
+
+    M.skelMarker=stand(spin(16000,
+      // skull
+      '<a-sphere position="0 1.42 0" radius="0.22" color="#e8e2d0"></a-sphere>'+
+      '<a-sphere position="-0.08 1.42 0.19" radius="0.05" color="#3a3730"></a-sphere>'+
+      '<a-sphere position="0.08 1.42 0.19" radius="0.05" color="#3a3730"></a-sphere>'+
+      // spine
+      '<a-cylinder position="0 1.15 0" radius="0.05" height="0.14" color="#efe9d8"></a-cylinder>'+
+      '<a-cylinder position="0 0.98 0" radius="0.05" height="0.14" color="#efe9d8"></a-cylinder>'+
+      '<a-cylinder position="0 0.81 0" radius="0.05" height="0.14" color="#efe9d8"></a-cylinder>'+
+      '<a-cylinder position="0 0.64 0" radius="0.05" height="0.14" color="#efe9d8"></a-cylinder>'+
+      // ribs
+      '<a-torus position="0 1.02 0" radius="0.3" radius-tubular="0.025" arc="200" rotation="0 0 -10" color="#efe9d8"></a-torus>'+
+      '<a-torus position="0 0.86 0" radius="0.33" radius-tubular="0.025" arc="200" rotation="0 0 -10" color="#efe9d8"></a-torus>'+
+      '<a-torus position="0 0.70 0" radius="0.31" radius-tubular="0.025" arc="200" rotation="0 0 -10" color="#efe9d8"></a-torus>'+
+      // hips
+      '<a-box position="0 0.5 0" width="0.4" height="0.12" depth="0.16" color="#e8e2d0"></a-box>'));
+
+    M.muscleMarker=stand(spin(15000,
+      '<a-entity animation__flex="property: scale; from: 1 1 1; to: 1.14 0.94 1.14; dir: alternate; loop: true; dur: 900; easing: easeInOutSine">'+
+      '  <a-sphere position="0 0.9 0" radius="0.34" scale="1.5 1 1" color="#b23a48"></a-sphere>'+
+      '  <a-cylinder position="-0.6 0.9 0" radius="0.07" height="0.4" rotation="0 0 90" color="#e7d9c9"></a-cylinder>'+
+      '  <a-cylinder position="0.6 0.9 0" radius="0.07" height="0.4" rotation="0 0 90" color="#e7d9c9"></a-cylinder>'+
+      '</a-entity>'));
+
+    M.lungMarker=stand(spin(18000,
+      '<a-entity animation__breathe="property: scale; from: 1 1 1; to: 1.07 1.13 1.07; dir: alternate; loop: true; dur: 2000; easing: easeInOutSine">'+
+      '  <a-cylinder position="0 1.34 0" radius="0.055" height="0.4" color="#d98a9a"></a-cylinder>'+
+      '  <a-sphere position="-0.28 0.85 0" radius="0.3" scale="0.85 1.25 0.85" color="#e79aaa"></a-sphere>'+
+      '  <a-sphere position="0.28 0.85 0" radius="0.3" scale="0.85 1.25 0.85" color="#e79aaa"></a-sphere>'+
+      '  <a-cylinder position="-0.13 1.08 0" radius="0.035" height="0.3" rotation="0 0 32" color="#d98a9a"></a-cylinder>'+
+      '  <a-cylinder position="0.13 1.08 0" radius="0.035" height="0.3" rotation="0 0 -32" color="#d98a9a"></a-cylinder>'+
+      '</a-entity>'));
+
+    M.chipMarker=stand(spin(12000,
+      '<a-box position="0 0.75 0" width="0.62" height="0.62" depth="0.1" color="#26333f"></a-box>'+
+      '<a-box position="0 0.75 0.06" width="0.34" height="0.34" depth="0.04" color="#3b566b"></a-box>'+
+      '<a-box position="0 0.75 0.09" width="0.16" height="0.16" depth="0.03" animation__glow="property: scale; from: 1 1 1; to: 1.35 1.35 1; dir: alternate; loop: true; dur: 700" color="#5ad1ff"></a-box>'+
+      // pins
+      '<a-box position="-0.2 1.12 0" width="0.05" height="0.12" depth="0.05" color="#c9c9c9"></a-box>'+
+      '<a-box position="0 1.12 0" width="0.05" height="0.12" depth="0.05" color="#c9c9c9"></a-box>'+
+      '<a-box position="0.2 1.12 0" width="0.05" height="0.12" depth="0.05" color="#c9c9c9"></a-box>'+
+      '<a-box position="-0.2 0.38 0" width="0.05" height="0.12" depth="0.05" color="#c9c9c9"></a-box>'+
+      '<a-box position="0 0.38 0" width="0.05" height="0.12" depth="0.05" color="#c9c9c9"></a-box>'+
+      '<a-box position="0.2 0.38 0" width="0.05" height="0.12" depth="0.05" color="#c9c9c9"></a-box>'));
+
+    // dna / atom / network are generated in JS (empty containers here)
+    M.dnaMarker=stand(spin(14000,'<a-entity id="dnaRoot"></a-entity>'));
+    M.atomMarker=stand('<a-entity id="atomRoot"></a-entity>');
+    M.netMarker=stand('<a-entity id="netRoot"></a-entity>');
+
+    function markerTag(c){
+      return '<a-marker id="'+c.id+'" type="pattern" url="'+c.patt+'">'+M[c.id]+'</a-marker>';
+    }
+
+    var SCENE=
+      '<a-scene embedded vr-mode-ui="enabled:false"'+
+      ' renderer="logarithmicDepthBuffer:true;colorManagement:true;antialias:true"'+
+      ' arjs="sourceType:webcam;detectionMode:mono;patternRatio:0.5;maxDetectionRate:30;debugUIEnabled:false">'+
+      ' <a-entity light="type:ambient;color:#e2ecff;intensity:0.85"></a-entity>'+
+      ' <a-entity light="type:directional;color:#fff;intensity:0.9" position="1 3 2"></a-entity>'+
+      CARDS.map(markerTag).join('')+
+      ' <a-entity camera></a-entity>'+
+      '</a-scene>';
+
+    // ---------- procedural builders ----------
+    function el(tag,attrs){var e=document.createElement(tag);for(var k in attrs)e.setAttribute(k,attrs[k]);return e;}
+    function buildDNA(root){
+      if(!root) return; var N=26,r=0.28;
+      for(var i=0;i<=N;i++){
+        var t=i/N, y=0.15+t*1.5, a=t*Math.PI*4.2;
+        var x=Math.cos(a)*r, z=Math.sin(a)*r;
+        root.appendChild(el('a-sphere',{position:x+' '+y+' '+z,radius:0.055,color:'#5ad1ff'}));
+        root.appendChild(el('a-sphere',{position:(-x)+' '+y+' '+(-z),radius:0.055,color:'#ff7ea8'}));
+        if(i%3===0){ var deg=-a*180/Math.PI;
+          root.appendChild(el('a-cylinder',{position:'0 '+y+' 0',radius:0.02,height:(2*r),rotation:'0 '+deg+' 90',color:'#cfe0ff'})); }
+      }
+    }
+    function buildAtom(root){
+      if(!root) return;
+      root.appendChild(el('a-sphere',{position:'0 0.8 0',radius:0.12,color:'#ff6b6b'}));
+      root.appendChild(el('a-sphere',{position:'0.06 0.86 0.04',radius:0.09,color:'#5a8fff'}));
+      root.appendChild(el('a-sphere',{position:'-0.06 0.74 -0.03',radius:0.09,color:'#5a8fff'}));
+      var tilts=['70 0 0','20 60 0','20 -60 0'], durs=[2200,2600,3000];
+      tilts.forEach(function(tl,i){
+        var orbit=el('a-entity',{position:'0 0.8 0',rotation:tl});
+        var spinE=el('a-entity',{animation:'property: rotation; to: 0 0 360; loop: true; dur: '+durs[i]+'; easing: linear'});
+        spinE.appendChild(el('a-torus',{radius:0.5,'radius-tubular':0.012,color:'#8fb8ff'}));
+        spinE.appendChild(el('a-sphere',{position:'0.5 0 0',radius:0.06,color:'#ffe27a'}));
+        orbit.appendChild(spinE); root.appendChild(orbit);
+      });
+    }
+    function buildNetwork(root){
+      if(!root) return; var cy=0.85,R=0.5;
+      var angs=[90,162,234,306,18], nodes=[[0,cy,0]];
+      angs.forEach(function(a){var r=a*Math.PI/180;nodes.push([Math.cos(r)*R,cy+Math.sin(r)*R,0]);});
+      for(var i=1;i<nodes.length;i++){
+        var a=angs[i-1]-90;
+        root.appendChild(el('a-cylinder',{position:(nodes[i][0]/2)+' '+((cy+nodes[i][1])/2)+' 0',
+          radius:0.018,height:R,rotation:'0 0 '+a,color:'#33566b'}));
+      }
+      root.appendChild(el('a-cylinder',{position:((nodes[1][0]+nodes[2][0])/2)+' '+((nodes[1][1]+nodes[2][1])/2)+' 0',
+        radius:0.015,height:0.42,rotation:'0 0 '+(162-90-36),color:'#33566b'}));
+      nodes.forEach(function(n,i){
+        root.appendChild(el('a-sphere',{position:n[0]+' '+n[1]+' '+n[2],radius:i===0?0.11:0.085,color:i===0?'#7be0a0':'#5ad1ff'}));
+      });
+      var pk=el('a-sphere',{radius:0.055,color:'#ffe27a',position:nodes[0].join(' ')});
+      pk.setAttribute('animation__go','property: position; from: '+nodes[0].join(' ')+'; to: '+nodes[1].join(' ')+'; dir: alternate; loop: true; dur: 1200; easing: easeInOutQuad');
+      root.appendChild(pk);
+    }
+
+    // ---------- enzyme staged animation ----------
+    var TARGETS={
+      ballA:[[0.95,1.45,0.05],[0,0.95,0.02],[0,0.95,0.02],[-0.06,1.0,0.02],[-0.55,1.55,0.2]],
+      ballB:[[0.95,1.15,0.05],[0,0.63,0.02],[0,0.63,0.02],[0.06,0.58,0.02],[0.55,1.45,0.2]],
+      bond :[[0.95,1.30,0.05],[0,0.79,0.02],[0,0.79,0.02],[0,0.79,0.02],[0,0.79,0.02]],
+      wallL:[[-0.4,0.8,0],[-0.34,0.8,0],[-0.28,0.82,0],[-0.34,0.8,0],[-0.44,0.8,0]],
+      wallR:[[0.4,0.8,0],[0.34,0.8,0],[0.28,0.82,0],[0.34,0.8,0],[0.44,0.8,0]]
+    };
+    var COLOR={ballA:['#F27649','#F27649','#F27649','#46C46A','#46C46A'],ballB:['#F27649','#F27649','#F27649','#46C46A','#46C46A']};
+    var OPAC={bond:[1,1,1,0,0],ballA:[1,1,1,1,0],ballB:[1,1,1,1,0]};
+    var ez={}, ezStage=0, ezTimer=0, MOVE=0.09, DWELL=2200, last=0, ready=false;
+    function ezGrab(id){var e=document.getElementById(id);return e?{el:e,o:e.object3D,m:(e.getObject3D&&e.getObject3D('mesh'))?e.getObject3D('mesh').material:null}:null;}
+    function ezSet(i,instant){
+      ezStage=i; ezTimer=0;
+      ['ballA','ballB'].forEach(function(n){if(ez[n]&&ez[n].m)ez[n].el.setAttribute('color',COLOR[n][i]);});
+      if(instant)Object.keys(ez).forEach(function(n){var t=TARGETS[n]?TARGETS[n][i]:null;if(t&&ez[n])ez[n].o.position.set(t[0],t[1],t[2]);if(ez[n]&&ez[n].m){ez[n].m.transparent=true;ez[n].m.opacity=OPAC[n]?OPAC[n][i]:1;}});
+    }
+    function tick(now){
+      requestAnimationFrame(tick); if(!ready)return;
+      var dt=last?Math.min(now-last,60):16; last=now;
+      Object.keys(ez).forEach(function(n){
+        var p=ez[n]; if(!p)return; var t=TARGETS[n]?TARGETS[n][ezStage]:null;
+        if(t){p.o.position.x+=(t[0]-p.o.position.x)*MOVE;p.o.position.y+=(t[1]-p.o.position.y)*MOVE;p.o.position.z+=(t[2]-p.o.position.z)*MOVE;}
+        if(p.m){var to=OPAC[n]?OPAC[n][ezStage]:1;p.m.transparent=true;p.m.opacity+=(to-p.m.opacity)*MOVE;}
+      });
+      ezTimer+=dt; if(ezTimer>=DWELL){var nx=(ezStage+1)%5; ezSet(nx,nx===0);}
+    }
+
+    // ---------- detection / caption ----------
+    var visible={}, current=null;
+    function render(){
+      var on=Object.keys(visible).filter(function(k){return visible[k];});
+      if(!on.length){statusEl.className='searching';labelEl.textContent='Searching for a card…';
+        searchHint.classList.remove('hidden');panel.classList.add('hidden');current=null;return;}
+      if(!current||!visible[current])current=on[on.length-1];
+      var info=INFO[current];
+      statusEl.className='locked';labelEl.textContent=info.name;
+      pName.textContent=info.name; pDesc.textContent=info.desc;
+      searchHint.classList.add('hidden'); panel.classList.remove('hidden');
+    }
+
+    function fail(t,m){gate.classList.remove('hidden');hud.classList.add('hidden');
+      gate.innerHTML='<h1 style="color:#ff6b6b;font-size:18px;letter-spacing:.1em">'+t+'</h1><p style="margin-top:10px">'+m+'</p>';}
+
+    function initScene(){
+      host.innerHTML=SCENE;
+      var scene=host.querySelector('a-scene');
+      function go(){
+        buildDNA(document.getElementById('dnaRoot'));
+        buildAtom(document.getElementById('atomRoot'));
+        buildNetwork(document.getElementById('netRoot'));
+        ['ballA','ballB','bond','wallL','wallR'].forEach(function(n){ez[n]=ezGrab(n);});
+        ezSet(0,true); ready=true;
+        CARDS.forEach(function(c){
+          var m=document.getElementById(c.id); if(!m)return;
+          m.addEventListener('markerFound',function(){visible[c.id]=true;render();});
+          m.addEventListener('markerLost',function(){visible[c.id]=false;render();});
+        });
+      }
+      if(scene.hasLoaded)go(); else scene.addEventListener('loaded',go);
+      requestAnimationFrame(tick);
+    }
+
+    startBtn.addEventListener('click',function(){
+      if(!window.isSecureContext)return fail('NEEDS HTTPS','Open this over <b>https</b> (your GitHub Pages link), not the file itself or an http address.');
+      if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return fail('CAMERA UNSUPPORTED','Try Chrome (Android) or Safari (iPhone).');
+      startBtn.disabled=true; gateNote.textContent='Starting camera…';
+      navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false})
+        .then(function(s){s.getTracks().forEach(function(t){t.stop();});
+          gate.classList.add('hidden');hud.classList.remove('hidden');initScene();})
+        .catch(function(e){var n=e&&e.name;
+          if(n==='NotAllowedError'||n==='SecurityError')fail('CAMERA BLOCKED','Camera access was denied. Allow Camera in the site settings and reload.');
+          else if(n==='NotFoundError'||n==='OverconstrainedError')fail('NO CAMERA FOUND','No usable camera on this device.');
+          else fail('CAMERA ERROR',(e&&e.message)||'The camera could not start.');});
+    });
+  })();
+  </script>
+</body>
+</html>
