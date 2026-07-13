@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>AR Card Scanner</title>
+
+  <!-- A-Frame + AR.js (pinned, known-stable pairing) -->
+  <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@3.4.5/aframe/build/aframe-ar.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+
+    /* ---------- HUD overlay ---------- */
+    #hud {
+      position: fixed; inset: 0; z-index: 10;
+      pointer-events: none;
+      font-family: ui-monospace, "SF Mono", "Roboto Mono", Menlo, Consolas, monospace;
+      color: #eafff2;
+    }
+    /* scanner corner brackets */
+    .bracket { position: absolute; width: 42px; height: 42px; border: 3px solid #37f2a3; opacity: .85; }
+    .bracket.tl { top: 22px; left: 22px; border-right: none; border-bottom: none; }
+    .bracket.tr { top: 22px; right: 22px; border-left: none; border-bottom: none; }
+    .bracket.bl { bottom: 22px; left: 22px; border-right: none; border-top: none; }
+    .bracket.br { bottom: 22px; right: 22px; border-left: none; border-top: none; }
+
+    /* status chip */
+    #status {
+      position: absolute; top: 26px; left: 50%; transform: translateX(-50%);
+      background: rgba(6,14,11,.72); border: 1px solid rgba(55,242,163,.5);
+      padding: 9px 16px; border-radius: 999px;
+      font-size: 13px; letter-spacing: .14em; text-transform: uppercase;
+      display: flex; align-items: center; gap: 9px; white-space: nowrap;
+      backdrop-filter: blur(6px);
+    }
+    #dot { width: 9px; height: 9px; border-radius: 50%; background: #6b7c74; flex: none; }
+    #status.searching #dot { background: #ffcf4d; animation: pulse 1s infinite; }
+    #status.locked    #dot { background: #37f2a3; box-shadow: 0 0 10px #37f2a3; }
+    @keyframes pulse { 0%,100%{opacity:.35} 50%{opacity:1} }
+
+    /* bottom hint */
+    #hint {
+      position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+      background: rgba(6,14,11,.7); border: 1px solid rgba(255,255,255,.14);
+      padding: 8px 15px; border-radius: 10px; font-size: 12px; letter-spacing: .04em;
+      max-width: 86vw; text-align: center; line-height: 1.45; backdrop-filter: blur(6px);
+    }
+
+    /* loading / gate screen */
+    #gate {
+      position: fixed; inset: 0; z-index: 40;
+      background: radial-gradient(120% 120% at 50% 0%, #0d1a15 0%, #050807 70%);
+      color: #eafff2; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; text-align: center; padding: 28px;
+      font-family: ui-monospace, "SF Mono", "Roboto Mono", Menlo, Consolas, monospace;
+    }
+    #gate h1 { font-size: 20px; letter-spacing: .2em; margin-bottom: 6px; }
+    #gate .accent { color: #37f2a3; }
+    #gate p { font-size: 13px; opacity: .8; max-width: 320px; line-height: 1.6; margin-bottom: 22px; }
+    #startBtn {
+      pointer-events: auto; cursor: pointer;
+      background: #37f2a3; color: #04140d; border: none;
+      font: inherit; font-size: 14px; letter-spacing: .12em; text-transform: uppercase;
+      padding: 14px 30px; border-radius: 12px; font-weight: 700;
+    }
+    #startBtn:active { transform: scale(.97); }
+    #gate small { display:block; margin-top:18px; font-size:11px; opacity:.5; letter-spacing:.05em;}
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <!-- Tap-to-start gate (also satisfies iOS gesture requirement for camera/motion) -->
+  <div id="gate">
+    <h1><span class="accent">AR</span> CARD SCANNER</h1>
+    <p>Point your camera at the <b>cat card</b> or the <b>skull card</b> and the model appears on top of it.</p>
+    <button id="startBtn">Start camera</button>
+    <small>Allow camera access when asked</small>
+  </div>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div class="bracket tl"></div><div class="bracket tr"></div>
+    <div class="bracket bl"></div><div class="bracket br"></div>
+    <div id="status" class="searching"><span id="dot"></span><span id="label">Searching…</span></div>
+    <div id="hint">Hold a card flat, ~30&nbsp;cm from the camera, in good light.</div>
+  </div>
+
+  <!-- ================= AR SCENE ================= -->
+  <a-scene
+    embedded
+    vr-mode-ui="enabled: false"
+    renderer="logarithmicDepthBuffer: true; colorManagement: true; antialias: true;"
+    arjs="sourceType: webcam; detectionMode: mono; patternRatio: 0.5; maxDetectionRate: 30; debugUIEnabled: false;">
+
+    <!-- lighting -->
+    <a-entity light="type: ambient; color: #bfcfff; intensity: 0.75"></a-entity>
+    <a-entity light="type: directional; color: #ffffff; intensity: 0.9" position="1 3 2"></a-entity>
+
+    <!-- ===== CAT MARKER ===== -->
+    <a-marker id="catMarker" type="pattern" url="cat.patt">
+      <a-entity rotation="-90 0 0">
+        <a-entity animation="property: rotation; to: 0 360 0; loop: true; dur: 6000; easing: linear">
+          <!-- body -->
+          <a-sphere position="0 0.42 0" radius="0.42" scale="1 1.15 0.9" color="#E8863A"></a-sphere>
+          <!-- head -->
+          <a-sphere position="0 0.95 0.02" radius="0.34" color="#F09A4B"></a-sphere>
+          <!-- ears -->
+          <a-cone position="-0.22 1.28 0" radius-bottom="0.15" radius-top="0" height="0.28" color="#E8863A"></a-cone>
+          <a-cone position="0.22 1.28 0" radius-bottom="0.15" radius-top="0" height="0.28" color="#E8863A"></a-cone>
+          <!-- inner ears -->
+          <a-cone position="-0.22 1.26 0.05" radius-bottom="0.08" radius-top="0" height="0.18" color="#ffc7a0"></a-cone>
+          <a-cone position="0.22 1.26 0.05" radius-bottom="0.08" radius-top="0" height="0.18" color="#ffc7a0"></a-cone>
+          <!-- eyes -->
+          <a-sphere position="-0.13 1.0 0.3" radius="0.07" color="#1c2a25"></a-sphere>
+          <a-sphere position="0.13 1.0 0.3" radius="0.07" color="#1c2a25"></a-sphere>
+          <!-- nose -->
+          <a-cone position="0 0.9 0.33" radius-bottom="0.045" radius-top="0" height="0.06" rotation="90 0 0" color="#ff9db0"></a-cone>
+          <!-- tail -->
+          <a-cylinder position="0.42 0.5 -0.1" radius="0.06" height="0.6" rotation="0 0 -55" color="#E8863A"></a-cylinder>
+          <!-- paws -->
+          <a-sphere position="-0.16 0.08 0.28" radius="0.1" color="#F09A4B"></a-sphere>
+          <a-sphere position="0.16 0.08 0.28" radius="0.1" color="#F09A4B"></a-sphere>
+        </a-entity>
+      </a-entity>
+    </a-marker>
+
+    <!-- ===== SKULL MARKER ===== -->
+    <a-marker id="skullMarker" type="pattern" url="skull.patt">
+      <a-entity rotation="-90 0 0">
+        <a-entity animation="property: rotation; to: 0 360 0; loop: true; dur: 6000; easing: linear">
+          <!-- cranium -->
+          <a-sphere position="0 0.9 0" radius="0.42" scale="1 1.05 1" color="#ECECE3"></a-sphere>
+          <!-- jaw -->
+          <a-box position="0 0.5 0.05" depth="0.4" width="0.5" height="0.28" color="#DEDED2"></a-box>
+          <!-- eye sockets -->
+          <a-sphere position="-0.17 0.95 0.34" radius="0.12" color="#14100f"></a-sphere>
+          <a-sphere position="0.17 0.95 0.34" radius="0.12" color="#14100f"></a-sphere>
+          <!-- nose cavity -->
+          <a-cone position="0 0.78 0.38" radius-bottom="0.07" radius-top="0" height="0.14" rotation="180 0 0" color="#14100f"></a-cone>
+          <!-- teeth -->
+          <a-box position="-0.15 0.42 0.24" depth="0.05" width="0.07" height="0.16" color="#ffffff"></a-box>
+          <a-box position="-0.05 0.42 0.24" depth="0.05" width="0.07" height="0.16" color="#ffffff"></a-box>
+          <a-box position="0.05 0.42 0.24"  depth="0.05" width="0.07" height="0.16" color="#ffffff"></a-box>
+          <a-box position="0.15 0.42 0.24"  depth="0.05" width="0.07" height="0.16" color="#ffffff"></a-box>
+        </a-entity>
+      </a-entity>
+    </a-marker>
+
+    <a-entity camera></a-entity>
+  </a-scene>
+
+  <script>
+    (function () {
+      var gate    = document.getElementById('gate');
+      var startBtn= document.getElementById('startBtn');
+      var hud     = document.getElementById('hud');
+      var statusEl= document.getElementById('status');
+      var labelEl = document.getElementById('label');
+      var hintEl  = document.getElementById('hint');
+      var scene   = document.querySelector('a-scene');
+
+      var visible = {}; // which markers are currently seen
+
+      function refresh() {
+        var names = Object.keys(visible).filter(function (k) { return visible[k]; });
+        if (names.length) {
+          statusEl.className = 'locked';
+          labelEl.textContent = names.join(' + ') + ' locked';
+          hintEl.textContent = 'Nice. Move the card around — the model follows it.';
+        } else {
+          statusEl.className = 'searching';
+          labelEl.textContent = 'Searching…';
+          hintEl.textContent = 'Hold a card flat, ~30\u00A0cm from the camera, in good light.';
+        }
+      }
+
+      function wire(id, nice) {
+        var m = document.getElementById(id);
+        m.addEventListener('markerFound', function () { visible[nice] = true;  refresh(); });
+        m.addEventListener('markerLost',  function () { visible[nice] = false; refresh(); });
+      }
+      wire('catMarker', 'CAT');
+      wire('skullMarker', 'SKULL');
+
+      startBtn.addEventListener('click', function () {
+        gate.classList.add('hidden');
+        hud.classList.remove('hidden');
+        // AR.js starts the webcam automatically once the scene is visible/interacted with.
+      });
+
+      // Surface camera errors instead of a silent black screen.
+      window.addEventListener('camera-error', showCamErr);
+      window.addEventListener('camera-init-error', showCamErr);
+      function showCamErr() {
+        gate.classList.remove('hidden');
+        gate.innerHTML =
+          '<h1 style="color:#ff6b6b">CAMERA BLOCKED</h1>' +
+          '<p>The camera couldn\u2019t start. Check that you allowed camera access, ' +
+          'and that the page is served over <b>https</b> (GitHub Pages is fine; ' +
+          'opening the file directly is not).</p>';
+      }
+    })();
+  </script>
+</body>
+</html>
